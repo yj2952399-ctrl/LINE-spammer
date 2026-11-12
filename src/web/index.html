@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OpenChat AutoReply</title>
+<style>
+ body{font:14px/1.6 system-ui,sans-serif;max-width:760px;margin:2rem auto;padding:0 1rem;background:#0e0e10;color:#e8e8ea}
+ h2{margin-top:2rem;font-size:15px;color:#9aa}
+ input,textarea,button{font:inherit;background:#1b1b1f;color:#eee;border:1px solid #333;border-radius:6px;padding:.5rem;width:100%;margin:.25rem 0}
+ button{cursor:pointer;background:#2a2a30}button:hover{background:#35353d}
+ .row{display:flex;gap:.5rem;align-items:center}
+ .card{border:1px solid #26262c;border-radius:8px;padding:.75rem;margin:.5rem 0}
+ .on{color:#4ade80}.off{color:#f87171}
+ iframe{width:100%;height:420px;border:1px solid #333;border-radius:8px;margin-top:.5rem}
+</style></head><body>
+<h1>OpenChat 自動返信</h1>
+
+<h2>1. アカウントを手動追加</h2>
+<div class="row"><input id="accName" placeholder="アカウント名"><button onclick="openLogin()">ログイン画面を開く</button></div>
+<div id="vncWrap"></div>
+<div class="row"><button onclick="saveAccount()">QRログイン完了 → 保存</button></div>
+
+<h2>2. ルーム登録</h2>
+<select id="accSel"></select>
+<input id="roomUrl" placeholder="https://openchat.line.me/... ルームURL">
+<textarea id="replyText" rows="2" placeholder="返信する定型文"></textarea>
+<button onclick="addRoom()">登録</button>
+
+<h2>3. 稼働状況</h2>
+<div id="rooms"></div>
+
+<script>
+const j = (u,o) => fetch(u,o).then(r=>r.json());
+
+async function refresh() {
+  const accs = await j('/api/accounts');
+  accSel.innerHTML = accs.map(a=>`<option value="${a.id}">${a.name}</option>`).join('');
+
+  const rooms = await j('/api/rooms');
+  rooms.innerHTML = '';
+  document.getElementById('rooms').innerHTML = rooms.map(r=>`
+    <div class="card">
+      <div class="row"><b>${r.reply_text}</b>
+        <button onclick="toggle('${r.id}')" style="width:auto;margin-left:auto">
+          ${r.enabled ? '<span class="off">停止</span>' : '<span class="on">開始</span>'}
+        </button></div>
+      <small>送信 ${r.sent_count} / 復帰 ${r.recover_count}</small>
+      <div id="log-${r.id}"></div>
+    </div>`).join('');
+
+  for (const r of rooms) {
+    const logs = await j('/api/logs/' + r.id);
+    document.getElementById('log-' + r.id).innerHTML =
+      logs.map(l=>`<small>${new Date(l.ts).toLocaleTimeString()} [${l.level}] ${l.msg}</small>`).join('<br>');
+  }
+}
+
+async function openLogin() {
+  const d = await j('/api/accounts/open-login', { method: 'POST' });
+  vncWrap.innerHTML = `<iframe src="${d.vnc}"></iframe>`;
+}
+async function saveAccount() {
+  await j('/api/accounts/save', {
+    method:'POST', headers:{'content-type':'application/json'},
+    body: JSON.stringify({ name: accName.value || 'account' })
+  });
+  vncWrap.innerHTML = ''; refresh();
+}
+async function addRoom() {
+  await j('/api/rooms', {
+    method:'POST', headers:{'content-type':'application/json'},
+    body: JSON.stringify({ accountId: accSel.value, url: roomUrl.value, replyText: replyText.value })
+  });
+  refresh();
+}
+async function toggle(id) { await j(`/api/rooms/${id}/toggle`, { method:'POST' }); refresh(); }
+
+refresh(); setInterval(refresh, 5000);
+</script></body></html>
